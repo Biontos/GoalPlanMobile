@@ -84,16 +84,32 @@ class DraggableCard(DragBehavior, RelativeLayout):
     def on_touch_down(self, touch):
         if self.collide_point(*touch.pos):
             if touch.is_double_tap:
-                self.move_to_next()
+                self.show_move_dialog()
         return super().on_touch_down(touch)
 
-    def move_to_next(self):
-        container = self.list_column
+    def show_move_dialog(self):
         lists = list(app.boards[app.current_board].keys())
-        idx = lists.index(container.list_name)
+        idx = lists.index(self.list_column.list_name)
+
+        buttons = []
+        if idx > 0:
+            buttons.append(MDFlatButton(text="← Назад", on_release=lambda x: self.move_to(lists[idx - 1])))
         if idx < len(lists) - 1:
-            next_list_name = lists[idx + 1]
-            app.move_card(container.list_name, next_list_name, self.card_text)
+            buttons.append(MDFlatButton(text="Вперёд →", on_release=lambda x: self.move_to(lists[idx + 1])))
+
+        buttons.append(MDFlatButton(text="Отмена", on_release=lambda x: self.move_dialog.dismiss()))
+
+        self.move_dialog = MDDialog(
+            title="Переместить карточку",
+            text=f"«{self.card_text}»",
+            buttons=buttons
+        )
+        self.move_dialog.open()
+
+    def move_to(self, target_list_name):
+        app.move_card(self.list_column.list_name, target_list_name, self.card_text)
+        self.move_dialog.dismiss()
+
 
 
 class ListColumn(MDCard):
