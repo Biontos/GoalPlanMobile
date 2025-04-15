@@ -1,12 +1,13 @@
 import json
-import os
 from kivy.lang import Builder
 from kivy.metrics import dp
+from kivy.uix.behaviors import DragBehavior
+from kivy.uix.relativelayout import RelativeLayout
 from kivymd.app import MDApp
 from kivymd.uix.screen import MDScreen
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.textfield import MDTextField
-from kivymd.uix.button import MDRaisedButton
+from kivymd.uix.button import MDRaisedButton, MDIconButton, MDFlatButton
 from kivymd.uix.card import MDCard
 from kivymd.uix.label import MDLabel
 from kivymd.uix.scrollview import MDScrollView
@@ -19,25 +20,81 @@ KV = '''
     name: "board"
     MDBoxLayout:
         orientation: "vertical"
-        padding: dp(10)
-        spacing: dp(10)
+        padding: dp(8)
+        spacing: dp(8)
 
         MDTopAppBar:
             title: "GoalPlan"
-            right_action_items: [["plus", lambda x: app.show_add_board_dialog()]]
+            elevation: 2
+            md_bg_color: app.theme_cls.primary_color
             left_action_items: [["menu", lambda x: app.open_board_menu()]]
+            right_action_items: [["plus", lambda x: app.show_add_board_dialog()]]
+            size_hint_y: None
+            height: dp(48)
+
+        MDBoxLayout:
+            orientation: "horizontal"
+            size_hint_y: None
+            height: dp(42)
+            padding: dp(4)
+            spacing: dp(4)
+            MDFlatButton:
+                text: "Список задач"
+                on_release: app.scroll_to_column("Список задач")
+            MDFlatButton:
+                text: "В процессе"
+                on_release: app.scroll_to_column("В процессе")
+            MDFlatButton:
+                text: "Готово"
+                on_release: app.scroll_to_column("Готово")
 
         ScrollView:
+            id: scroll_view
+            do_scroll_x: True
             do_scroll_y: False
+
             MDBoxLayout:
                 id: list_container
-                spacing: dp(15)
-                padding: dp(10)
+                spacing: dp(12)
+                padding: dp(8)
                 adaptive_height: True
                 size_hint_x: None
                 width: self.minimum_width
                 orientation: "horizontal"
 '''
+
+class DraggableCard(DragBehavior, RelativeLayout):
+    def __init__(self, text, list_column, **kwargs):
+        super().__init__(**kwargs)
+        self.size_hint_y = None
+        self.height = dp(60)
+        self.list_column = list_column
+        self.card_text = text
+
+        card = MDCard(orientation="horizontal", padding=dp(8),
+                      md_bg_color=[0.9, 0.95, 1, 1], radius=[10] * 4,
+                      size_hint=(1, 1))
+        card.add_widget(MDLabel(text=text, halign="left", valign="top", theme_text_color="Primary"))
+
+        delete_button = MDIconButton(icon="delete", pos_hint={"center_y": 0.5},
+                                     on_release=lambda x: app.remove_card_ui(self, list_column))
+        card.add_widget(delete_button)
+        self.add_widget(card)
+
+    def on_touch_down(self, touch):
+        if self.collide_point(*touch.pos):
+            if touch.is_double_tap:
+                self.move_to_next()
+        return super().on_touch_down(touch)
+
+    def move_to_next(self):
+        container = self.list_column
+        lists = list(app.boards[app.current_board].keys())
+        idx = lists.index(container.list_name)
+        if idx < len(lists) - 1:
+            next_list_name = lists[idx + 1]
+            app.move_card(container.list_name, next_list_name, self.card_text)
+
 
 class ListColumn(MDCard):
     def __init__(self, title, board_name, **kwargs):
@@ -46,15 +103,16 @@ class ListColumn(MDCard):
         self.list_name = title
         self.orientation = "vertical"
         self.size_hint = (None, None)
-        self.width = dp(280)
-        self.height = dp(500)
+        self.width = dp(240)
+        self.height = dp(460)
         self.padding = dp(10)
         self.spacing = dp(10)
         self.radius = [15, 15, 15, 15]
         self.md_bg_color = [1, 1, 1, 1]
         self.elevation = 4
 
-        self.add_widget(MDLabel(text=title, halign="center", bold=True, font_style="H6", size_hint_y=None, height=dp(40)))
+        self.add_widget(
+            MDLabel(text=title, halign="center", bold=True, font_style="H6", size_hint_y=None, height=dp(40)))
 
         self.scroll = MDScrollView(size_hint=(1, 1))
         self.card_container = MDBoxLayout(orientation="vertical", adaptive_height=True, size_hint_y=None)
@@ -74,12 +132,13 @@ class ListColumn(MDCard):
             app.save_card(self.board_name, self.list_name, card_text)
 
     def add_card_to_ui(self, text):
-        card = MDCard(orientation="vertical", padding=dp(8), size_hint_y=None, height=dp(70), md_bg_color=[0.9, 0.95, 1, 1], radius=[10]*4)
-        card.add_widget(MDLabel(text=text, halign="left", valign="top", theme_text_color="Primary"))
+        card = DraggableCard(text=text, list_column=self)
         self.card_container.add_widget(card)
+
 
 class BoardScreen(MDScreen):
     pass
+
 
 class GoalPlan(MDApp):
     def build(self):
@@ -117,6 +176,21 @@ class GoalPlan(MDApp):
         if board in self.boards and list_name in self.boards[board]:
             self.boards[board][list_name].append(card_text)
             self.save_data()
+
+    def remove_card(self, board, list_name, card_text):
+        if board in self.boards and list_name in self.boards[board]:
+            if card_text in self.boards[board][list_name]:
+                self.boards[board][list_name].remove(card_text)
+                self.save_data()
+
+    def remove_card_ui(self, card, list_column):
+        list_column.card_container.remove_widget(card)
+        self.remove_card(self.current_board, list_column.list_name, card.card_text)
+
+    def move_card(self, from_list, to_list, card_text):
+        self.remove_card(self.current_board, from_list, card_text)
+        self.save_card(self.current_board, to_list, card_text)
+        self.load_board(self.current_board)
 
     def load_board(self, board_name):
         self.screen.ids.list_container.clear_widgets()
@@ -157,6 +231,15 @@ class GoalPlan(MDApp):
             self.save_data()
             self.dialog.dismiss()
             self.load_board(board_name)
+
+    def scroll_to_column(self, list_name):
+        for column in self.screen.ids.list_container.children:
+            if hasattr(column, 'list_name') and column.list_name == list_name:
+                scroll_view = self.screen.ids.scroll_view
+                scroll_x = column.x / max(1, self.screen.ids.list_container.width - scroll_view.width)
+                scroll_view.scroll_x = max(0.0, min(scroll_x, 1.0))
+                break
+
 
 if __name__ == '__main__':
     GoalPlan().run()
