@@ -14,7 +14,9 @@ from kivymd.uix.scrollview import MDScrollView
 from kivymd.uix.menu import MDDropdownMenu
 from kivymd.uix.toolbar import MDTopAppBar
 from kivymd.uix.dialog import MDDialog
-
+from kivy.core.window import Window
+Window.clearcolor = (0.96, 0.94, 0.90, 1)
+Window.size = (360, 640)
 KV = '''
 <BoardScreen>:
     name: "board"
@@ -204,9 +206,28 @@ class GoalPlan(MDApp):
         self.remove_card(self.current_board, list_column.list_name, card.card_text)
 
     def move_card(self, from_list, to_list, card_text):
+        if from_list == to_list:
+            return
+
         self.remove_card(self.current_board, from_list, card_text)
         self.save_card(self.current_board, to_list, card_text)
-        self.load_board(self.current_board)
+
+        from_column = None
+        to_column = None
+        for column in self.screen.ids.list_container.children:
+            if hasattr(column, 'list_name'):
+                if column.list_name == from_list:
+                    from_column = column
+                elif column.list_name == to_list:
+                    to_column = column
+
+        if from_column and to_column:
+            for card in from_column.card_container.children[:]:
+                if isinstance(card, DraggableCard) and card.card_text == card_text:
+                    from_column.card_container.remove_widget(card)
+                    card.list_column = to_column
+                    to_column.card_container.add_widget(card)
+                    break
 
     def load_board(self, board_name):
         self.screen.ids.list_container.clear_widgets()
